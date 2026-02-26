@@ -7,9 +7,25 @@ type FormState = {
   destination: string;
   startDate: string;
   endDate: string;
+  transport: string;
 };
 
-const emptyForm: FormState = { destination: "", startDate: "", endDate: "" };
+const TRANSPORT_OPTIONS = [
+  "飛行機",
+  "新幹線",
+  "電車",
+  "バス",
+  "車",
+  "フェリー",
+  "その他",
+] as const;
+
+const emptyForm: FormState = {
+  destination: "",
+  startDate: "",
+  endDate: "",
+  transport: "",
+};
 
 export default function Home() {
   const router = useRouter();
@@ -24,6 +40,7 @@ export default function Home() {
         destination: form.destination.trim(),
         startDate: form.startDate,
         endDate: form.endDate,
+        transport: form.transport,
       })
     );
     router.push("/trip");
@@ -45,6 +62,7 @@ export default function Home() {
           onSubmit={handleSubmit}
           className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 space-y-4"
         >
+          {/* 旅行先 */}
           <div>
             <label
               htmlFor="field-destination"
@@ -63,6 +81,7 @@ export default function Home() {
             />
           </div>
 
+          {/* 旅行期間 */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label
@@ -97,6 +116,29 @@ export default function Home() {
                 className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
             </div>
+          </div>
+
+          {/* 主な移動手段 */}
+          <div>
+            <label
+              htmlFor="field-transport"
+              className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1"
+            >
+              主な移動手段
+            </label>
+            <select
+              id="field-transport"
+              value={form.transport}
+              onChange={(e) => setForm({ ...form, transport: e.target.value })}
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            >
+              <option value="">選択してください</option>
+              {TRANSPORT_OPTIONS.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
           </div>
 
           <button
