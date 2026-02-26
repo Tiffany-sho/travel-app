@@ -41,16 +41,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   その他: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
 };
 
-const SAMPLE_SPOTS: Spot[] = [
-  { id: "sample-1", name: "空港到着・荷物受け取り", category: "その他", memo: "預け荷物あり" },
-  { id: "sample-2", name: "ホテルチェックイン", category: "宿泊", memo: "チェックイン 15:00〜" },
-  { id: "sample-3", name: "市内観光スポット巡り", category: "観光", memo: "主要スポットをまわる" },
-  { id: "sample-4", name: "ランチ（現地グルメ）", category: "グルメ", memo: "名物料理を食べる" },
-  { id: "sample-5", name: "博物館・美術館見学", category: "観光", memo: "午後からじっくり見学" },
-  { id: "sample-6", name: "お土産ショッピング", category: "ショッピング", memo: "地元のマーケットへ" },
-  { id: "sample-7", name: "ディナー（予約済み）", category: "グルメ", memo: "19:00〜 予約確認済み" },
-  { id: "sample-8", name: "ホテルチェックアウト・帰国", category: "その他", memo: "空港には2時間前を目安に" },
-];
 
 function formatDate(dateStr: string) {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("ja-JP");
@@ -79,7 +69,7 @@ export default function TripPage() {
   const [isEditingDeparture, setIsEditingDeparture] = useState(true);
 
   // --- Spot state ---
-  const [spots, setSpots] = useState<Spot[]>(SAMPLE_SPOTS);
+  const [spots, setSpots] = useState<Spot[]>([]);
   const [spotForm, setSpotForm] = useState<SpotFormState>(emptySpotForm);
   const [editingSpotId, setEditingSpotId] = useState<string | null>(null);
   const [editingSpotForm, setEditingSpotForm] = useState<SpotFormState>(emptySpotForm);
@@ -298,13 +288,10 @@ export default function TripPage() {
                 </div>
 
                 {/* Datetime */}
-                <div>
-                  <label
-                    htmlFor="dep-datetime"
-                    className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1"
-                  >
+                <label htmlFor="dep-datetime" className="block cursor-pointer">
+                  <span className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
                     出発日時
-                  </label>
+                  </span>
                   <div className="flex gap-2">
                     <input
                       id="dep-datetime"
@@ -315,11 +302,11 @@ export default function TripPage() {
                         setDepartureForm({ ...departureForm, datetime: e.target.value });
                       }}
                       disabled={datetimeUndecided}
-                      className="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-50 dark:disabled:bg-gray-600 disabled:text-gray-400"
+                      className="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-50 dark:disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-default"
                     />
                     <button
                       type="button"
-                      onClick={() => setDatetimeUndecided((v) => !v)}
+                      onClick={(e) => { e.preventDefault(); setDatetimeUndecided((v) => !v); }}
                       className={`shrink-0 text-xs px-3 py-2 rounded-lg border transition-colors ${
                         datetimeUndecided
                           ? "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/40 dark:border-amber-600 dark:text-amber-300"
@@ -329,7 +316,7 @@ export default function TripPage() {
                       未定
                     </button>
                   </div>
-                </div>
+                </label>
               </div>
 
               <button

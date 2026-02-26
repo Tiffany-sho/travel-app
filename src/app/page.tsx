@@ -83,29 +83,23 @@ export default function Home() {
 
           {/* 旅行期間 */}
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label
-                htmlFor="field-start"
-                className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1"
-              >
+            <label htmlFor="field-start" className="block cursor-pointer">
+              <span className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
                 出発日 <span className="text-red-500">*</span>
-              </label>
+              </span>
               <input
                 id="field-start"
                 type="date"
                 value={form.startDate}
                 onChange={(e) => setForm({ ...form, startDate: e.target.value })}
                 required
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
-            </div>
-            <div>
-              <label
-                htmlFor="field-end"
-                className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1"
-              >
+            </label>
+            <label htmlFor="field-end" className="block cursor-pointer">
+              <span className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
                 帰着日 <span className="text-red-500">*</span>
-              </label>
+              </span>
               <input
                 id="field-end"
                 type="date"
@@ -113,9 +107,9 @@ export default function Home() {
                 onChange={(e) => setForm({ ...form, endDate: e.target.value })}
                 required
                 min={form.startDate}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
-            </div>
+            </label>
           </div>
 
           {/* 主な移動手段 */}
