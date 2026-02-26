@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 type FormState = {
@@ -30,6 +30,8 @@ const emptyForm: FormState = {
 export default function Home() {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(emptyForm);
+  const startDateRef = useRef<HTMLInputElement>(null);
+  const endDateRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -83,33 +85,45 @@ export default function Home() {
 
           {/* 旅行期間 */}
           <div className="grid grid-cols-2 gap-4">
-            <label htmlFor="field-start" className="block cursor-pointer">
+            <div
+              className="cursor-pointer"
+              onClick={() => startDateRef.current?.showPicker()}
+            >
               <span className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
                 出発日 <span className="text-red-500">*</span>
               </span>
               <input
+                ref={startDateRef}
                 id="field-start"
                 type="date"
+                aria-label="出発日"
                 value={form.startDate}
                 onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                onClick={(e) => e.stopPropagation()}
                 required
                 className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
-            </label>
-            <label htmlFor="field-end" className="block cursor-pointer">
+            </div>
+            <div
+              className="cursor-pointer"
+              onClick={() => endDateRef.current?.showPicker()}
+            >
               <span className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
                 帰着日 <span className="text-red-500">*</span>
               </span>
               <input
+                ref={endDateRef}
                 id="field-end"
                 type="date"
+                aria-label="帰着日"
                 value={form.endDate}
                 onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+                onClick={(e) => e.stopPropagation()}
                 required
                 min={form.startDate}
                 className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
-            </label>
+            </div>
           </div>
 
           {/* 主な移動手段 */}
