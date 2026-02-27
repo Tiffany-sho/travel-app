@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import MapPanel from "./MapPanel";
+import dynamic from "next/dynamic";
+
+const MapPanel = dynamic(() => import("./MapPanel"), { ssr: false });
 
 type Trip = {
   destination: string;
@@ -39,7 +41,7 @@ type DayGroup = {
   spots: Spot[];
 };
 
-type TravelMode = "transit" | "driving" | "walking";
+type TravelMode = "driving" | "walking" | "cycling";
 
 type TravelInfo = {
   mode: TravelMode;
@@ -68,9 +70,9 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 const TRAVEL_MODES: { value: TravelMode; label: string }[] = [
-  { value: "transit", label: "電車" },
   { value: "driving", label: "車" },
   { value: "walking", label: "徒歩" },
+  { value: "cycling", label: "自転車" },
 ];
 
 function formatDate(dateStr: string) {
@@ -267,7 +269,7 @@ export default function TripPage() {
 
   // Renders a travel time connector row between two places
   const renderConnector = (key: string, fromName: string, toName: string) => {
-    const info = travelInfos[key] ?? { mode: "transit" as TravelMode, loading: false };
+    const info = travelInfos[key] ?? { mode: "driving" as TravelMode, loading: false };
     const cannotSearch = info.loading || fromName === "未定" || !toName;
     return (
       <div key={`tc-${key}`} className="flex gap-3">
@@ -288,7 +290,7 @@ export default function TripPage() {
                       setTravelInfos((prev) => ({
                         ...prev,
                         [key]: {
-                          ...(prev[key] ?? { mode: "transit" as TravelMode, loading: false }),
+                          ...(prev[key] ?? { mode: "driving" as TravelMode, loading: false }),
                           mode: m.value,
                           duration: undefined,
                           distance: undefined,
