@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import MapPanel from "./MapPanel";
 
 type Trip = {
   destination: string;
@@ -335,8 +336,15 @@ export default function TripPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 py-10 px-4">
-      <div className="max-w-2xl mx-auto space-y-6">
+    <div className="min-h-screen lg:h-screen lg:overflow-hidden bg-gradient-to-br from-sky-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex flex-col lg:flex-row">
+      {/* Left: Map panel */}
+      <div className="h-56 sm:h-72 lg:h-full lg:w-[44%] xl:w-[46%] shrink-0">
+        <MapPanel destination={trip.destination} departure={departure} spots={spots} />
+      </div>
+
+      {/* Right: Scrollable content */}
+      <div className="flex-1 lg:overflow-y-auto py-8 px-4">
+      <div className="max-w-xl mx-auto space-y-6">
 
         {/* Back link */}
         <button
@@ -699,6 +707,7 @@ export default function TripPage() {
             })}
           </section>
         )}
+      </div>
       </div>
     </div>
   );
