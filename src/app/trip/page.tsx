@@ -21,17 +21,32 @@ type Spot = {
   name: string;
   category: string;
   memo: string;
+  visitDate: string; // "YYYY-MM-DD" or ""
+  visitTime: string; // "HH:mm" or ""
 };
 
 type SpotFormState = {
   name: string;
   category: string;
   memo: string;
+  visitDate: string;
+  visitTime: string;
+};
+
+type DayGroup = {
+  date: string; // "" means undecided
+  spots: Spot[];
 };
 
 const CATEGORIES = ["観光", "グルメ", "ショッピング", "宿泊", "その他"] as const;
 
-const emptySpotForm: SpotFormState = { name: "", category: "観光", memo: "" };
+const emptySpotForm: SpotFormState = {
+  name: "",
+  category: "観光",
+  memo: "",
+  visitDate: "",
+  visitTime: "",
+};
 
 const CATEGORY_COLORS: Record<string, string> = {
   観光: "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300",
@@ -56,6 +71,30 @@ function formatDatetime(datetimeStr: string) {
   });
 }
 
+function groupSpots(spots: Spot[]): DayGroup[] {
+  const map: Record<string, Spot[]> = {};
+  for (const spot of spots) {
+    const key = spot.visitDate || "";
+    if (!map[key]) map[key] = [];
+    map[key].push(spot);
+  }
+  return Object.entries(map)
+    .map(([date, items]) => ({
+      date,
+      spots: [...items].sort((a, b) => {
+        if (!a.visitTime && !b.visitTime) return 0;
+        if (!a.visitTime) return 1;
+        if (!b.visitTime) return -1;
+        return a.visitTime.localeCompare(b.visitTime);
+      }),
+    }))
+    .sort((a, b) => {
+      if (!a.date) return 1;
+      if (!b.date) return -1;
+      return a.date.localeCompare(b.date);
+    });
+}
+
 export default function TripPage() {
   const router = useRouter();
   const [trip, setTrip] = useState<Trip | null>(null);
@@ -73,8 +112,8 @@ export default function TripPage() {
   const [spotForm, setSpotForm] = useState<SpotFormState>(emptySpotForm);
   const [editingSpotId, setEditingSpotId] = useState<string | null>(null);
   const [editingSpotForm, setEditingSpotForm] = useState<SpotFormState>(emptySpotForm);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const visitDateRef = useRef<HTMLInputElement>(null);
+  const editVisitDateRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const data = sessionStorage.getItem("currentTrip");
@@ -122,6 +161,8 @@ export default function TripPage() {
         name: spotForm.name.trim(),
         category: spotForm.category,
         memo: spotForm.memo.trim(),
+        visitDate: spotForm.visitDate,
+        visitTime: spotForm.visitTime,
       },
     ]);
     setSpotForm(emptySpotForm);
@@ -129,7 +170,13 @@ export default function TripPage() {
 
   const handleSpotEditStart = (spot: Spot) => {
     setEditingSpotId(spot.id);
-    setEditingSpotForm({ name: spot.name, category: spot.category, memo: spot.memo });
+    setEditingSpotForm({
+      name: spot.name,
+      category: spot.category,
+      memo: spot.memo,
+      visitDate: spot.visitDate,
+      visitTime: spot.visitTime,
+    });
   };
 
   const handleSpotEditSave = (id: string) => {
@@ -142,6 +189,8 @@ export default function TripPage() {
               name: editingSpotForm.name.trim(),
               category: editingSpotForm.category,
               memo: editingSpotForm.memo.trim(),
+              visitDate: editingSpotForm.visitDate,
+              visitTime: editingSpotForm.visitTime,
             }
           : s
       )
@@ -153,39 +202,18 @@ export default function TripPage() {
     setSpots((prev) => prev.filter((s) => s.id !== id));
   };
 
-  // ---- Drag handlers (disabled while editing a spot) ----
-
-  const handleDragStart = (index: number) => {
-    if (editingSpotId) return;
-    setDragIndex(index);
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    if (editingSpotId) return;
-    if (dragOverIndex !== index) setDragOverIndex(index);
-  };
-
-  const handleDrop = (index: number) => {
-    if (dragIndex === null || dragIndex === index || editingSpotId) return;
-    setSpots((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(dragIndex, 1);
-      next.splice(index, 0, moved);
-      return next;
-    });
-    setDragIndex(null);
-    setDragOverIndex(null);
-  };
-
-  const handleDragEnd = () => {
-    setDragIndex(null);
-    setDragOverIndex(null);
-  };
-
   if (!trip) return null;
 
   const departureSaved = departure !== null && !isEditingDeparture;
+  const dayGroups = groupSpots(spots);
+
+  const getDayNumber = (date: string): number | null => {
+    if (!date || !trip.startDate) return null;
+    const start = new Date(trip.startDate + "T00:00:00");
+    const day = new Date(date + "T00:00:00");
+    const diff = Math.round((day.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    return diff + 1;
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 py-10 px-4">
@@ -212,7 +240,7 @@ export default function TripPage() {
           )}
         </div>
 
-        {/* ========== 1. 出発情報フォーム（未設定 or 編集中のみ表示）========== */}
+        {/* ========== 1. 出発情報フォーム ========== */}
         {isEditingDeparture && (
           <section className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">出発情報</h2>
@@ -221,10 +249,7 @@ export default function TripPage() {
 
                 {/* Location */}
                 <div>
-                  <label
-                    htmlFor="dep-location"
-                    className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1"
-                  >
+                  <label htmlFor="dep-location" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
                     出発地 <span className="text-red-500">*</span>
                   </label>
                   <div className="flex gap-2">
@@ -240,28 +265,16 @@ export default function TripPage() {
                       placeholder={locationUndecided ? "未定" : "例: 東京駅、成田空港"}
                       className="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-50 dark:disabled:bg-gray-600 disabled:text-gray-400"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setLocationUndecided((v) => !v)}
-                      className={`shrink-0 text-xs px-3 py-2 rounded-lg border transition-colors ${
-                        locationUndecided
-                          ? "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/40 dark:border-amber-600 dark:text-amber-300"
-                          : "border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
-                      }`}
-                    >
+                    <button type="button" onClick={() => setLocationUndecided((v) => !v)}
+                      className={`shrink-0 text-xs px-3 py-2 rounded-lg border transition-colors ${locationUndecided ? "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/40 dark:border-amber-600 dark:text-amber-300" : "border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"}`}>
                       未定
                     </button>
                   </div>
                 </div>
 
                 {/* Datetime */}
-                <div
-                  className="cursor-pointer"
-                  onClick={() => !datetimeUndecided && depDatetimeRef.current?.showPicker()}
-                >
-                  <span className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
-                    出発日時
-                  </span>
+                <div className="cursor-pointer" onClick={() => !datetimeUndecided && depDatetimeRef.current?.showPicker()}>
+                  <span className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">出発日時</span>
                   <div className="flex gap-2">
                     <input
                       ref={depDatetimeRef}
@@ -269,307 +282,296 @@ export default function TripPage() {
                       type="datetime-local"
                       aria-label="出発日時"
                       value={datetimeUndecided ? "" : departureForm.datetime}
-                      onChange={(e) => {
-                        setDatetimeUndecided(false);
-                        setDepartureForm({ ...departureForm, datetime: e.target.value });
-                      }}
+                      onChange={(e) => { setDatetimeUndecided(false); setDepartureForm({ ...departureForm, datetime: e.target.value }); }}
                       onClick={(e) => e.stopPropagation()}
                       disabled={datetimeUndecided}
                       className="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-50 dark:disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-default"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setDatetimeUndecided((v) => !v)}
-                      className={`shrink-0 text-xs px-3 py-2 rounded-lg border transition-colors ${
-                        datetimeUndecided
-                          ? "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/40 dark:border-amber-600 dark:text-amber-300"
-                          : "border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
-                      }`}
-                    >
+                    <button type="button" onClick={() => setDatetimeUndecided((v) => !v)}
+                      className={`shrink-0 text-xs px-3 py-2 rounded-lg border transition-colors ${datetimeUndecided ? "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/40 dark:border-amber-600 dark:text-amber-300" : "border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"}`}>
                       未定
                     </button>
                   </div>
                 </div>
               </div>
-
-              <button
-                type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm"
-              >
+              <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">
                 保存する
               </button>
             </form>
           </section>
         )}
 
-        {/* ========== 2. 目的地フォーム（出発情報保存後のみ表示）========== */}
+        {/* ========== 2. 目的地フォーム ========== */}
         {departureSaved && (
           <section className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">
-              目的地を追加
-            </h2>
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">目的地を追加</h2>
             <form onSubmit={handleSpotSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label
-                    htmlFor="spot-name"
-                    className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1"
-                  >
+                  <label htmlFor="spot-name" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
                     目的地名 <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    id="spot-name"
-                    type="text"
-                    value={spotForm.name}
+                  <input id="spot-name" type="text" value={spotForm.name}
                     onChange={(e) => setSpotForm({ ...spotForm, name: e.target.value })}
-                    placeholder="例: エッフェル塔"
-                    required
+                    placeholder="例: エッフェル塔" required
                     className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                 </div>
                 <div>
-                  <label
-                    htmlFor="spot-category"
-                    className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1"
-                  >
-                    カテゴリ
-                  </label>
-                  <select
-                    id="spot-category"
-                    value={spotForm.category}
+                  <label htmlFor="spot-category" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">カテゴリ</label>
+                  <select id="spot-category" value={spotForm.category}
                     onChange={(e) => setSpotForm({ ...spotForm, category: e.target.value })}
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                  >
-                    {CATEGORIES.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
+
+                {/* Visit date */}
+                <div className="cursor-pointer" onClick={() => visitDateRef.current?.showPicker()}>
+                  <span className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">訪問日</span>
+                  <input ref={visitDateRef} id="spot-visit-date" type="date" aria-label="訪問日"
+                    value={spotForm.visitDate}
+                    onChange={(e) => setSpotForm({ ...spotForm, visitDate: e.target.value })}
+                    onClick={(e) => e.stopPropagation()}
+                    min={trip.startDate} max={trip.endDate}
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  />
+                </div>
+
+                {/* Visit time */}
+                <div>
+                  <label htmlFor="spot-visit-time" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">訪問時間</label>
+                  <input id="spot-visit-time" type="time" value={spotForm.visitTime}
+                    onChange={(e) => setSpotForm({ ...spotForm, visitTime: e.target.value })}
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  />
+                </div>
+
                 <div className="sm:col-span-2">
-                  <label
-                    htmlFor="spot-memo"
-                    className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1"
-                  >
-                    メモ
-                  </label>
-                  <input
-                    id="spot-memo"
-                    type="text"
-                    value={spotForm.memo}
+                  <label htmlFor="spot-memo" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">メモ</label>
+                  <input id="spot-memo" type="text" value={spotForm.memo}
                     onChange={(e) => setSpotForm({ ...spotForm, memo: e.target.value })}
                     placeholder="備考、営業時間など"
                     className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                 </div>
               </div>
-              <button
-                type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm"
-              >
+              <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">
                 追加する
               </button>
             </form>
           </section>
         )}
 
-        {/* ========== 3. 目的地リスト（出発情報 + スポット）========== */}
+        {/* ========== 3. タイムライン ========== */}
         {departureSaved && (
           <section>
-            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3">
-              目的地リスト
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">
+              スケジュール
               {spots.length > 0 && (
                 <span className="ml-2 text-sm font-normal text-gray-400">{spots.length} 件</span>
               )}
-              {!editingSpotId && spots.length > 1 && (
-                <span className="ml-2 text-xs font-normal text-gray-400">ドラッグで並び替え可能</span>
-              )}
             </h2>
-            <ul className="space-y-2">
 
-              {/* ---- 出発情報（固定・先頭） ---- */}
-              {departure && (
-                <li className="rounded-xl border-2 border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/20 p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="shrink-0 px-2.5 py-1 rounded-full bg-indigo-600 text-white text-xs font-bold">
-                      出発
+            {/* 出発 (固定先頭) */}
+            {departure && (
+              <div className="flex gap-3 mb-2">
+                {/* Time column */}
+                <div className="w-12 shrink-0 text-right pt-3">
+                  {departure.datetime && !departure.datetimeUndecided && (
+                    <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                      {new Date(departure.datetime).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
                     </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-gray-900 dark:text-gray-100 text-sm">
-                        {departure.location}
-                      </p>
-                      {departure.datetimeUndecided ? (
-                        <span className="inline-block mt-0.5 text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full">
-                          出発日時: 未定
-                        </span>
-                      ) : departure.datetime ? (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {formatDatetime(departure.datetime)}
-                        </p>
-                      ) : null}
+                  )}
+                </div>
+                {/* Line + dot */}
+                <div className="flex flex-col items-center">
+                  <div className="w-4 h-4 rounded-full bg-indigo-600 dark:bg-indigo-500 shrink-0 mt-2.5 flex items-center justify-center">
+                    <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                  </div>
+                  {spots.length > 0 && <div className="w-0.5 flex-1 bg-indigo-200 dark:bg-indigo-700 mt-1" />}
+                </div>
+                {/* Card */}
+                <div className="flex-1 pb-3">
+                  <div className="bg-indigo-50 dark:bg-indigo-900/30 border-2 border-indigo-200 dark:border-indigo-700 rounded-xl p-3 flex items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">出発</span>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{departure.location}</span>
+                      </div>
+                      {departure.datetimeUndecided && (
+                        <span className="inline-block mt-0.5 text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full">日時: 未定</span>
+                      )}
+                      {!departure.datetimeUndecided && departure.datetime && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{formatDatetime(departure.datetime)}</p>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleDepartureEdit}
-                      className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400 hover:underline px-1"
-                    >
+                    <button type="button" onClick={handleDepartureEdit}
+                      className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400 hover:underline">
                       編集
                     </button>
                   </div>
-                </li>
-              )}
+                </div>
+              </div>
+            )}
 
-              {/* ---- スポット一覧 ---- */}
-              {spots.length === 0 ? (
-                <li className="text-center text-gray-400 dark:text-gray-500 text-sm py-6">
-                  上のフォームから目的地を追加しましょう。
-                </li>
-              ) : (
-                spots.map((spot, index) => (
-                  <li
-                    key={spot.id}
-                    draggable={!editingSpotId}
-                    onDragStart={() => handleDragStart(index)}
-                    onDragOver={(e) => handleDragOver(e, index)}
-                    onDrop={() => handleDrop(index)}
-                    onDragEnd={handleDragEnd}
-                    className={[
-                      "rounded-xl border-2 bg-white dark:bg-gray-800 p-4 transition-all duration-150",
-                      editingSpotId === spot.id
-                        ? "border-indigo-300 dark:border-indigo-600"
-                        : dragIndex === index
-                        ? "opacity-40 border-indigo-300 dark:border-indigo-600"
-                        : dragOverIndex === index
-                        ? "border-indigo-400 shadow-md"
-                        : `border-transparent shadow-sm hover:shadow-md hover:border-gray-200 dark:hover:border-gray-600 ${
-                            !editingSpotId ? "cursor-grab active:cursor-grabbing" : ""
-                          }`,
-                    ].join(" ")}
-                  >
-                    {editingSpotId === spot.id ? (
-                      /* ---- Inline edit form ---- */
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label
-                              htmlFor={`edit-name-${spot.id}`}
-                              className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1"
-                            >
-                              目的地名 <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                              id={`edit-name-${spot.id}`}
-                              type="text"
-                              value={editingSpotForm.name}
-                              onChange={(e) =>
-                                setEditingSpotForm({ ...editingSpotForm, name: e.target.value })
-                              }
-                              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                            />
-                          </div>
-                          <div>
-                            <label
-                              htmlFor={`edit-cat-${spot.id}`}
-                              className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1"
-                            >
-                              カテゴリ
-                            </label>
-                            <select
-                              id={`edit-cat-${spot.id}`}
-                              value={editingSpotForm.category}
-                              onChange={(e) =>
-                                setEditingSpotForm({ ...editingSpotForm, category: e.target.value })
-                              }
-                              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                            >
-                              {CATEGORIES.map((c) => (
-                                <option key={c} value={c}>{c}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="sm:col-span-2">
-                            <label
-                              htmlFor={`edit-memo-${spot.id}`}
-                              className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1"
-                            >
-                              メモ
-                            </label>
-                            <input
-                              id={`edit-memo-${spot.id}`}
-                              type="text"
-                              value={editingSpotForm.memo}
-                              onChange={(e) =>
-                                setEditingSpotForm({ ...editingSpotForm, memo: e.target.value })
-                              }
-                              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleSpotEditSave(spot.id)}
-                            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors"
-                          >
-                            保存
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingSpotId(null)}
-                            className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-sm font-medium py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                          >
-                            キャンセル
-                          </button>
-                        </div>
+            {/* スポットなし */}
+            {spots.length === 0 && (
+              <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6 pl-15">
+                上のフォームから目的地を追加しましょう。
+              </p>
+            )}
+
+            {/* 日付グループ */}
+            {dayGroups.map((group, groupIndex) => {
+              const dayNum = getDayNumber(group.date);
+              const isLastGroup = groupIndex === dayGroups.length - 1;
+
+              return (
+                <div key={group.date || "__undecided__"}>
+                  {/* Day header */}
+                  <div className="flex gap-3 mb-1">
+                    <div className="w-12 shrink-0" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 py-2">
+                        <div className="h-px flex-1 bg-gray-300 dark:bg-gray-600" />
+                        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 shrink-0 px-2">
+                          {group.date
+                            ? `${new Date(group.date + "T00:00:00").toLocaleDateString("ja-JP")}${dayNum !== null ? ` (${dayNum}日目)` : ""}`
+                            : "日程未定"}
+                        </span>
+                        <div className="h-px flex-1 bg-gray-300 dark:bg-gray-600" />
                       </div>
-                    ) : (
-                      /* ---- Normal display ---- */
-                      <div className="flex items-center gap-3 select-none">
-                        <span className="text-gray-300 dark:text-gray-500 shrink-0 text-xl leading-none" aria-hidden>
-                          &#8942;&#8942;
-                        </span>
-                        <span className="shrink-0 w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-800 text-indigo-700 dark:text-indigo-200 text-xs font-bold flex items-center justify-center">
-                          {index + 1}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm">
-                              {spot.name}
-                            </span>
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${CATEGORY_COLORS[spot.category] ?? CATEGORY_COLORS["その他"]}`}>
-                              {spot.category}
-                            </span>
-                          </div>
-                          {spot.memo && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
-                              {spot.memo}
-                            </p>
+                    </div>
+                  </div>
+
+                  {/* Spots in this day */}
+                  {group.spots.map((spot, spotIndex) => {
+                    const isLastInGroup = spotIndex === group.spots.length - 1;
+                    const isAbsoluteLast = isLastGroup && isLastInGroup;
+
+                    return (
+                      <div key={spot.id} className="flex gap-3">
+                        {/* Time column */}
+                        <div className="w-12 shrink-0 text-right pt-3">
+                          {spot.visitTime ? (
+                            <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{spot.visitTime}</span>
+                          ) : (
+                            <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleSpotEditStart(spot)}
-                          className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400 hover:underline px-1"
-                          aria-label={`${spot.name}を編集`}
-                        >
-                          編集
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(spot.id)}
-                          className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors text-lg leading-none"
-                          aria-label={`${spot.name}を削除`}
-                        >
-                          &times;
-                        </button>
+
+                        {/* Line + dot */}
+                        <div className="flex flex-col items-center">
+                          <div className={`w-3 h-3 rounded-full shrink-0 mt-3.5 ${CATEGORY_DOT_COLORS[spot.category] ?? "bg-gray-400"}`} />
+                          {!isAbsoluteLast && (
+                            <div className="w-0.5 flex-1 bg-indigo-100 dark:bg-indigo-800/60 mt-1" />
+                          )}
+                        </div>
+
+                        {/* Card */}
+                        <div className="flex-1 pb-3">
+                          {editingSpotId === spot.id ? (
+                            /* ---- Inline edit form ---- */
+                            <div className="bg-white dark:bg-gray-800 border-2 border-indigo-300 dark:border-indigo-600 rounded-xl p-4 space-y-3">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                  <label htmlFor={`edit-name-${spot.id}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                                    目的地名 <span className="text-red-500">*</span>
+                                  </label>
+                                  <input id={`edit-name-${spot.id}`} type="text" value={editingSpotForm.name}
+                                    onChange={(e) => setEditingSpotForm({ ...editingSpotForm, name: e.target.value })}
+                                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                  />
+                                </div>
+                                <div>
+                                  <label htmlFor={`edit-cat-${spot.id}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">カテゴリ</label>
+                                  <select id={`edit-cat-${spot.id}`} value={editingSpotForm.category}
+                                    onChange={(e) => setEditingSpotForm({ ...editingSpotForm, category: e.target.value })}
+                                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                                    {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                                  </select>
+                                </div>
+                                <div className="cursor-pointer" onClick={() => editVisitDateRef.current?.showPicker()}>
+                                  <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">訪問日</span>
+                                  <input ref={editVisitDateRef} id={`edit-date-${spot.id}`} type="date" aria-label="訪問日"
+                                    value={editingSpotForm.visitDate}
+                                    onChange={(e) => setEditingSpotForm({ ...editingSpotForm, visitDate: e.target.value })}
+                                    onClick={(e) => e.stopPropagation()}
+                                    min={trip.startDate} max={trip.endDate}
+                                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                  />
+                                </div>
+                                <div>
+                                  <label htmlFor={`edit-time-${spot.id}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">訪問時間</label>
+                                  <input id={`edit-time-${spot.id}`} type="time" value={editingSpotForm.visitTime}
+                                    onChange={(e) => setEditingSpotForm({ ...editingSpotForm, visitTime: e.target.value })}
+                                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                  />
+                                </div>
+                                <div className="sm:col-span-2">
+                                  <label htmlFor={`edit-memo-${spot.id}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">メモ</label>
+                                  <input id={`edit-memo-${spot.id}`} type="text" value={editingSpotForm.memo}
+                                    onChange={(e) => setEditingSpotForm({ ...editingSpotForm, memo: e.target.value })}
+                                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button type="button" onClick={() => handleSpotEditSave(spot.id)}
+                                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
+                                  保存
+                                </button>
+                                <button type="button" onClick={() => setEditingSpotId(null)}
+                                  className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-sm font-medium py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                  キャンセル
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            /* ---- Normal display ---- */
+                            <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl shadow-sm p-3 flex items-start gap-2 hover:shadow-md transition-shadow">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{spot.name}</span>
+                                  <span className={`text-xs px-2 py-0.5 rounded-full ${CATEGORY_COLORS[spot.category] ?? CATEGORY_COLORS["その他"]}`}>
+                                    {spot.category}
+                                  </span>
+                                </div>
+                                {spot.memo && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{spot.memo}</p>
+                                )}
+                              </div>
+                              <button type="button" onClick={() => handleSpotEditStart(spot)}
+                                className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400 hover:underline px-1"
+                                aria-label={`${spot.name}を編集`}>
+                                編集
+                              </button>
+                              <button type="button" onClick={() => handleDelete(spot.id)}
+                                className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors text-base leading-none"
+                                aria-label={`${spot.name}を削除`}>
+                                &times;
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </li>
-                ))
-              )}
-            </ul>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </section>
         )}
       </div>
     </div>
   );
 }
+
+const CATEGORY_DOT_COLORS: Record<string, string> = {
+  観光: "bg-sky-400",
+  グルメ: "bg-orange-400",
+  ショッピング: "bg-pink-400",
+  宿泊: "bg-purple-400",
+  その他: "bg-gray-400",
+};
