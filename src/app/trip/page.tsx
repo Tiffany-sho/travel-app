@@ -90,6 +90,7 @@ function formatDatetime(datetimeStr: string) {
   });
 }
 
+// 挿入順を維持（visitTimeによる自動ソートなし）
 function groupSpots(spots: Spot[]): DayGroup[] {
   const map: Record<string, Spot[]> = {};
   for (const spot of spots) {
@@ -98,15 +99,7 @@ function groupSpots(spots: Spot[]): DayGroup[] {
     map[key].push(spot);
   }
   return Object.entries(map)
-    .map(([date, items]) => ({
-      date,
-      spots: [...items].sort((a, b) => {
-        if (!a.visitTime && !b.visitTime) return 0;
-        if (!a.visitTime) return 1;
-        if (!b.visitTime) return -1;
-        return a.visitTime.localeCompare(b.visitTime);
-      }),
-    }))
+    .map(([date, items]) => ({ date, spots: items })) // 挿入順を保持
     .sort((a, b) => {
       if (!a.date) return 1;
       if (!b.date) return -1;
@@ -131,11 +124,12 @@ export default function TripPage() {
   const [spotForm, setSpotForm] = useState<SpotFormState>(emptySpotForm);
   const [editingSpotId, setEditingSpotId] = useState<string | null>(null);
   const [editingSpotForm, setEditingSpotForm] = useState<SpotFormState>(emptySpotForm);
-  const visitDateRef = useRef<HTMLInputElement>(null);
-  const editVisitDateRef = useRef<HTMLInputElement>(null);
 
   // --- Travel time state ---
   const [travelInfos, setTravelInfos] = useState<Record<string, TravelInfo>>({});
+
+  // --- Reorder trigger for auto travel-time fetch ---
+  const [reorderTrigger, setReorderTrigger] = useState(0);
 
   useEffect(() => {
     const data = sessionStorage.getItem("currentTrip");
@@ -224,6 +218,26 @@ export default function TripPage() {
     setSpots((prev) => prev.filter((s) => s.id !== id));
   };
 
+  // ---- Spot reorder handler ----
+
+  const handleSpotMove = (spotId: string, direction: "up" | "down", group: DayGroup) => {
+    const idx = group.spots.findIndex((s) => s.id === spotId);
+    if (direction === "up" && idx === 0) return;
+    if (direction === "down" && idx === group.spots.length - 1) return;
+
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    const targetId = group.spots[swapIdx].id;
+
+    setSpots((prev) => {
+      const next = [...prev];
+      const posA = next.findIndex((s) => s.id === spotId);
+      const posB = next.findIndex((s) => s.id === targetId);
+      [next[posA], next[posB]] = [next[posB], next[posA]];
+      return next;
+    });
+    setReorderTrigger((t) => t + 1);
+  };
+
   // ---- Travel time handlers ----
 
   const fetchTravelTime = async (key: string, origin: string, destination: string, mode: TravelMode) => {
@@ -253,6 +267,22 @@ export default function TripPage() {
     }
   };
 
+  // ---- Auto-fetch travel times after reorder ----
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (reorderTrigger === 0 || !departure || departure.location === "未定") return;
+    // groupSpots(spots) を直接呼び出して dayGroups の TDZ 問題を回避
+    const ordered = groupSpots(spots).flatMap((g) => g.spots);
+    if (ordered.length === 0) return;
+
+    const segments: Array<{ key: string; from: string; to: string }> = [];
+    segments.push({ key: `departure->${ordered[0].id}`, from: departure.location, to: ordered[0].name });
+    for (let i = 0; i < ordered.length - 1; i++) {
+      segments.push({ key: `${ordered[i].id}->${ordered[i + 1].id}`, from: ordered[i].name, to: ordered[i + 1].name });
+    }
+    segments.forEach((seg) => fetchTravelTime(seg.key, seg.from, seg.to, travelInfos[seg.key]?.mode ?? "driving"));
+  }, [reorderTrigger]); // intentional: only triggered by manual reorder
+
   if (!trip) return null;
 
   const departureSaved = departure !== null && !isEditingDeparture;
@@ -266,6 +296,30 @@ export default function TripPage() {
     const diff = Math.round((day.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
     return diff + 1;
   };
+
+  // 何日目か選択肢（訪問日フォーム用）
+  const tripDays = (() => {
+    const days: { value: string; label: string }[] = [];
+    const start = new Date(trip.startDate + "T00:00:00");
+    const end = new Date(trip.endDate + "T00:00:00");
+    let current = new Date(start);
+    let dayNum = 1;
+    while (current <= end) {
+      const dateStr = current.toISOString().split("T")[0];
+      days.push({ value: dateStr, label: `${dayNum}日目 (${current.toLocaleDateString("ja-JP")})` });
+      current.setDate(current.getDate() + 1);
+      dayNum++;
+    }
+    return days;
+  })();
+
+  // 1日目グループが存在しない場合でも必ず先頭に追加（出発を表示するため）
+  const renderGroups: DayGroup[] = (() => {
+    if (!departureSaved) return dayGroups;
+    const hasDay1 = dayGroups.some((g) => g.date === trip.startDate);
+    if (hasDay1) return dayGroups;
+    return [{ date: trip.startDate, spots: [] }, ...dayGroups];
+  })();
 
   // Renders a travel time connector row between two places
   const renderConnector = (key: string, fromName: string, toName: string) => {
@@ -455,16 +509,17 @@ export default function TripPage() {
                   </select>
                 </div>
 
-                {/* Visit date */}
-                <div className="cursor-pointer" onClick={() => visitDateRef.current?.showPicker()}>
-                  <span className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">訪問日</span>
-                  <input ref={visitDateRef} id="spot-visit-date" type="date" aria-label="訪問日"
-                    value={spotForm.visitDate}
+                {/* 訪問日（何日目か選択） */}
+                <div>
+                  <label htmlFor="spot-visit-day" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">訪問日</label>
+                  <select id="spot-visit-day" value={spotForm.visitDate}
                     onChange={(e) => setSpotForm({ ...spotForm, visitDate: e.target.value })}
-                    onClick={(e) => e.stopPropagation()}
-                    min={trip.startDate} max={trip.endDate}
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                  />
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <option value="">日付を選択</option>
+                    {tripDays.map((d) => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Visit time */}
@@ -502,68 +557,11 @@ export default function TripPage() {
               )}
             </h2>
 
-            {/* 出発 (固定先頭) */}
-            {departure && (
-              <div className="flex gap-3 mb-2">
-                {/* Time column */}
-                <div className="w-12 shrink-0 text-right pt-3">
-                  {departure.datetime && !departure.datetimeUndecided && (
-                    <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                      {new Date(departure.datetime).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  )}
-                </div>
-                {/* Line + dot */}
-                <div className="flex flex-col items-center">
-                  <div className="w-4 h-4 rounded-full bg-indigo-600 dark:bg-indigo-500 shrink-0 mt-2.5 flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 rounded-full bg-white" />
-                  </div>
-                  {flatOrderedSpots.length > 0 && <div className="w-0.5 flex-1 bg-indigo-200 dark:bg-indigo-700 mt-1" />}
-                </div>
-                {/* Card */}
-                <div className="flex-1 pb-3">
-                  <div className="bg-indigo-50 dark:bg-indigo-900/30 border-2 border-indigo-200 dark:border-indigo-700 rounded-xl p-3 flex items-center justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">出発</span>
-                        <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{departure.location}</span>
-                      </div>
-                      {departure.datetimeUndecided && (
-                        <span className="inline-block mt-0.5 text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full">日時: 未定</span>
-                      )}
-                      {!departure.datetimeUndecided && departure.datetime && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{formatDatetime(departure.datetime)}</p>
-                      )}
-                    </div>
-                    <button type="button" onClick={handleDepartureEdit}
-                      className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400 hover:underline">
-                      編集
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Departure → first spot connector */}
-            {departure && flatOrderedSpots.length > 0 &&
-              renderConnector(
-                `departure->${flatOrderedSpots[0].id}`,
-                departure.location,
-                flatOrderedSpots[0].name
-              )
-            }
-
-            {/* スポットなし */}
-            {spots.length === 0 && (
-              <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6 pl-15">
-                上のフォームから目的地を追加しましょう。
-              </p>
-            )}
-
-            {/* 日付グループ */}
-            {dayGroups.map((group, groupIndex) => {
+            {/* 日付グループ（1日目に出発を含む） */}
+            {renderGroups.map((group, groupIndex) => {
+              const isDayOne = group.date === trip.startDate;
               const dayNum = getDayNumber(group.date);
-              const isLastGroup = groupIndex === dayGroups.length - 1;
+              const isLastGroup = groupIndex === renderGroups.length - 1;
 
               return (
                 <div key={group.date || "__undecided__"}>
@@ -583,10 +581,74 @@ export default function TripPage() {
                     </div>
                   </div>
 
+                  {/* 出発カード（1日目の先頭に表示） */}
+                  {isDayOne && departure && (
+                    <>
+                      <div className="flex gap-3 mb-2">
+                        {/* Time column */}
+                        <div className="w-12 shrink-0 text-right pt-3">
+                          {departure.datetime && !departure.datetimeUndecided && (
+                            <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                              {new Date(departure.datetime).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          )}
+                        </div>
+                        {/* Line + dot */}
+                        <div className="flex flex-col items-center">
+                          <div className="w-4 h-4 rounded-full bg-indigo-600 dark:bg-indigo-500 shrink-0 mt-2.5 flex items-center justify-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                          </div>
+                          {flatOrderedSpots.length > 0 && (
+                            <div className="w-0.5 flex-1 bg-indigo-200 dark:bg-indigo-700 mt-1" />
+                          )}
+                        </div>
+                        {/* Card */}
+                        <div className="flex-1 pb-3">
+                          <div className="bg-indigo-50 dark:bg-indigo-900/30 border-2 border-indigo-200 dark:border-indigo-700 rounded-xl p-3 flex items-center justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">出発</span>
+                                <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{departure.location}</span>
+                              </div>
+                              {departure.datetimeUndecided && (
+                                <span className="inline-block mt-0.5 text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full">日時: 未定</span>
+                              )}
+                              {!departure.datetimeUndecided && departure.datetime && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{formatDatetime(departure.datetime)}</p>
+                              )}
+                            </div>
+                            <button type="button" onClick={handleDepartureEdit}
+                              className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400 hover:underline">
+                              編集
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Departure → first spot connector */}
+                      {flatOrderedSpots.length > 0 &&
+                        renderConnector(
+                          `departure->${flatOrderedSpots[0].id}`,
+                          departure.location,
+                          flatOrderedSpots[0].name
+                        )
+                      }
+                    </>
+                  )}
+
+                  {/* スポットなし（まだ追加されていない） */}
+                  {isDayOne && spots.length === 0 && (
+                    <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6 pl-14">
+                      上のフォームから目的地を追加しましょう。
+                    </p>
+                  )}
+
                   {/* Spots in this day */}
                   {group.spots.flatMap((spot, spotIndex) => {
-                    const isLastInGroup = spotIndex === group.spots.length - 1;
-                    const isAbsoluteLast = isLastGroup && isLastInGroup;
+                    const isFirstInDay = spotIndex === 0;
+                    const isLastInDay = spotIndex === group.spots.length - 1;
+                    const isLastGroup2 = isLastGroup;
+                    const isAbsoluteLast = isLastGroup2 && isLastInDay;
                     const flatIdx = flatOrderedSpots.findIndex((s) => s.id === spot.id);
                     const nextSpot = flatOrderedSpots[flatIdx + 1];
 
@@ -632,15 +694,17 @@ export default function TripPage() {
                                     {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                                   </select>
                                 </div>
-                                <div className="cursor-pointer" onClick={() => editVisitDateRef.current?.showPicker()}>
-                                  <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">訪問日</span>
-                                  <input ref={editVisitDateRef} id={`edit-date-${spot.id}`} type="date" aria-label="訪問日"
-                                    value={editingSpotForm.visitDate}
+                                {/* 訪問日（何日目か選択） */}
+                                <div>
+                                  <label htmlFor={`edit-day-${spot.id}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">訪問日</label>
+                                  <select id={`edit-day-${spot.id}`} value={editingSpotForm.visitDate}
                                     onChange={(e) => setEditingSpotForm({ ...editingSpotForm, visitDate: e.target.value })}
-                                    onClick={(e) => e.stopPropagation()}
-                                    min={trip.startDate} max={trip.endDate}
-                                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                                  />
+                                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                                    <option value="">日付を選択</option>
+                                    {tripDays.map((d) => (
+                                      <option key={d.value} value={d.value}>{d.label}</option>
+                                    ))}
+                                  </select>
                                 </div>
                                 <div>
                                   <label htmlFor={`edit-time-${spot.id}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">訪問時間</label>
@@ -682,6 +746,29 @@ export default function TripPage() {
                                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{spot.memo}</p>
                                 )}
                               </div>
+
+                              {/* 並び替えボタン */}
+                              <div className="flex flex-col shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSpotMove(spot.id, "up", group)}
+                                  disabled={isFirstInDay}
+                                  className="w-6 h-5 flex items-center justify-center text-gray-300 hover:text-indigo-500 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none"
+                                  aria-label="上に移動"
+                                >
+                                  ▲
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSpotMove(spot.id, "down", group)}
+                                  disabled={isLastInDay}
+                                  className="w-6 h-5 flex items-center justify-center text-gray-300 hover:text-indigo-500 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none"
+                                  aria-label="下に移動"
+                                >
+                                  ▼
+                                </button>
+                              </div>
+
                               <button type="button" onClick={() => handleSpotEditStart(spot)}
                                 className="shrink-0 text-xs text-indigo-500 dark:text-indigo-400 hover:underline px-1"
                                 aria-label={`${spot.name}を編集`}>
